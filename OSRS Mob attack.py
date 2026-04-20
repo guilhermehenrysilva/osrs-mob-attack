@@ -80,8 +80,8 @@ CAMERA_TILT_UP_SECONDS = 3.0
 CAMERA_TILT_DOWN_SECONDS = 3.0
 SAFETY_PAUSE_INTERVAL_MIN_SECONDS = 120.0
 SAFETY_PAUSE_INTERVAL_MAX_SECONDS = 600.0
-SAFETY_PAUSE_DURATION_MIN_SECONDS = 10.0
-SAFETY_PAUSE_DURATION_MAX_SECONDS = 30.0
+SAFETY_PAUSE_DURATION_MIN_SECONDS = 30.0
+SAFETY_PAUSE_DURATION_MAX_SECONDS = 180.0
 
 # Controle de combate
 POST_CLICK_WAIT_HUB_SECONDS = 10.0
@@ -171,6 +171,10 @@ class MobSupportBot:
         self.max_runtime_hours = DEFAULT_MAX_RUNTIME_HOURS
         self.max_runtime_seconds = int(DEFAULT_MAX_RUNTIME_HOURS * 3600.0)
         self.humanized_pauses_enabled = True
+        self.safety_pause_interval_min_seconds = SAFETY_PAUSE_INTERVAL_MIN_SECONDS
+        self.safety_pause_interval_max_seconds = SAFETY_PAUSE_INTERVAL_MAX_SECONDS
+        self.safety_pause_duration_min_seconds = SAFETY_PAUSE_DURATION_MIN_SECONDS
+        self.safety_pause_duration_max_seconds = SAFETY_PAUSE_DURATION_MAX_SECONDS
         self.session_started_at = 0.0
         self.last_auto_reload_check = 0.0
         self.mob_conf_mtime = 0.0
@@ -204,8 +208,30 @@ class MobSupportBot:
             pass
 
     def _schedule_next_safety_pause(self, now: float):
-        delta = random.uniform(SAFETY_PAUSE_INTERVAL_MIN_SECONDS, SAFETY_PAUSE_INTERVAL_MAX_SECONDS)
+        delta = random.uniform(
+            self.safety_pause_interval_min_seconds,
+            self.safety_pause_interval_max_seconds,
+        )
         self.next_safety_pause_at = now + delta
+
+    @staticmethod
+    def _safe_float(value, default: float) -> float:
+        try:
+            return float(value)
+        except Exception:
+            return float(default)
+
+    def _set_safety_pause_interval_range(self, min_seconds: float, max_seconds: float):
+        lo = max(10.0, min(float(min_seconds), float(max_seconds)))
+        hi = max(lo, min(7200.0, max(float(min_seconds), float(max_seconds))))
+        self.safety_pause_interval_min_seconds = lo
+        self.safety_pause_interval_max_seconds = hi
+
+    def _set_safety_pause_duration_range(self, min_seconds: float, max_seconds: float):
+        lo = max(1.0, min(float(min_seconds), float(max_seconds)))
+        hi = max(lo, min(3600.0, max(float(min_seconds), float(max_seconds))))
+        self.safety_pause_duration_min_seconds = lo
+        self.safety_pause_duration_max_seconds = hi
 
     @staticmethod
     def _slugify_mob_name(name: str) -> str:
@@ -484,6 +510,22 @@ class MobSupportBot:
             runtime_enabled = data.get("runtime_limit_enabled", True)
             max_runtime_h = data.get("max_runtime_hours", DEFAULT_MAX_RUNTIME_HOURS)
             humanized_pauses = data.get("humanized_pauses_enabled", True)
+            pause_interval_min = data.get(
+                "safety_pause_interval_min_seconds",
+                SAFETY_PAUSE_INTERVAL_MIN_SECONDS,
+            )
+            pause_interval_max = data.get(
+                "safety_pause_interval_max_seconds",
+                SAFETY_PAUSE_INTERVAL_MAX_SECONDS,
+            )
+            pause_duration_min = data.get(
+                "safety_pause_duration_min_seconds",
+                SAFETY_PAUSE_DURATION_MIN_SECONDS,
+            )
+            pause_duration_max = data.get(
+                "safety_pause_duration_max_seconds",
+                SAFETY_PAUSE_DURATION_MAX_SECONDS,
+            )
             self.hub_green_samples = [
                 (int(x[0]), int(x[1]), int(x[2]))
                 for x in hub_g
@@ -502,6 +544,14 @@ class MobSupportBot:
             self.runtime_limit_enabled = bool(runtime_enabled)
             self._set_max_runtime_hours(max_runtime_h)
             self.humanized_pauses_enabled = bool(humanized_pauses)
+            self._set_safety_pause_interval_range(
+                self._safe_float(pause_interval_min, SAFETY_PAUSE_INTERVAL_MIN_SECONDS),
+                self._safe_float(pause_interval_max, SAFETY_PAUSE_INTERVAL_MAX_SECONDS),
+            )
+            self._set_safety_pause_duration_range(
+                self._safe_float(pause_duration_min, SAFETY_PAUSE_DURATION_MIN_SECONDS),
+                self._safe_float(pause_duration_max, SAFETY_PAUSE_DURATION_MAX_SECONDS),
+            )
             self._rebuild_hub_ranges()
             print(f"[BOT] Config script carregada: {SCRIPT_CONF_PATH}")
         except Exception:
@@ -514,6 +564,10 @@ class MobSupportBot:
             "runtime_limit_enabled": self.runtime_limit_enabled,
             "max_runtime_hours": self.max_runtime_hours,
             "humanized_pauses_enabled": self.humanized_pauses_enabled,
+            "safety_pause_interval_min_seconds": self.safety_pause_interval_min_seconds,
+            "safety_pause_interval_max_seconds": self.safety_pause_interval_max_seconds,
+            "safety_pause_duration_min_seconds": self.safety_pause_duration_min_seconds,
+            "safety_pause_duration_max_seconds": self.safety_pause_duration_max_seconds,
             "hub_green_samples": [[h, s, v] for h, s, v in self.hub_green_samples],
             "hub_red_samples": [[h, s, v] for h, s, v in self.hub_red_samples],
             "updated_at": datetime.now().isoformat(),
@@ -965,9 +1019,17 @@ class MobSupportBot:
         while True:
             self._print_header("Configuracao :: Pausas Programadas")
             print(f"Status: {self._on_off_text(self.humanized_pauses_enabled)}")
+            print(
+                f"Intervalo entre pausas: {self.safety_pause_interval_min_seconds:.0f}s a {self.safety_pause_interval_max_seconds:.0f}s"
+            )
+            print(
+                f"Duracao da pausa: {self.safety_pause_duration_min_seconds:.0f}s a {self.safety_pause_duration_max_seconds:.0f}s"
+            )
             print("1 - Ativar/Desativar")
+            print("2 - Definir Intervalo entre Pausas")
+            print("3 - Definir Duracao da Pausa")
             print("0 - Voltar")
-            choice = self._prompt_choice(["1", "0"])
+            choice = self._prompt_choice(["1", "2", "3", "0"])
             if choice == "1":
                 self.humanized_pauses_enabled = not self.humanized_pauses_enabled
                 if not self.humanized_pauses_enabled:
@@ -977,6 +1039,44 @@ class MobSupportBot:
                 self._save_script_conf()
                 print(
                     f"[BOT] Pausas Programadas: {self._on_off_text(self.humanized_pauses_enabled)}."
+                )
+                time.sleep(1.0)
+            elif choice == "2":
+                print("Minimo em segundos para intervalo entre pausas (ex.: 120):")
+                raw_min = input("> ").strip().replace(",", ".")
+                print("Maximo em segundos para intervalo entre pausas (ex.: 600):")
+                raw_max = input("> ").strip().replace(",", ".")
+                try:
+                    vmin = float(raw_min)
+                    vmax = float(raw_max)
+                except Exception:
+                    print("[BOT] Valor invalido.")
+                    time.sleep(1.0)
+                    continue
+                self._set_safety_pause_interval_range(vmin, vmax)
+                if self.humanized_pauses_enabled and self.enabled:
+                    self._schedule_next_safety_pause(time.time())
+                self._save_script_conf()
+                print(
+                    f"[BOT] Intervalo atualizado para {self.safety_pause_interval_min_seconds:.0f}s a {self.safety_pause_interval_max_seconds:.0f}s."
+                )
+                time.sleep(1.0)
+            elif choice == "3":
+                print("Minimo em segundos para duracao da pausa (ex.: 30):")
+                raw_min = input("> ").strip().replace(",", ".")
+                print("Maximo em segundos para duracao da pausa (ex.: 180):")
+                raw_max = input("> ").strip().replace(",", ".")
+                try:
+                    vmin = float(raw_min)
+                    vmax = float(raw_max)
+                except Exception:
+                    print("[BOT] Valor invalido.")
+                    time.sleep(1.0)
+                    continue
+                self._set_safety_pause_duration_range(vmin, vmax)
+                self._save_script_conf()
+                print(
+                    f"[BOT] Duracao atualizada para {self.safety_pause_duration_min_seconds:.0f}s a {self.safety_pause_duration_max_seconds:.0f}s."
                 )
                 time.sleep(1.0)
             elif choice == "0":
@@ -1108,8 +1208,8 @@ class MobSupportBot:
                 and not just_left_combat
             ):
                 pause_seconds = random.uniform(
-                    SAFETY_PAUSE_DURATION_MIN_SECONDS,
-                    SAFETY_PAUSE_DURATION_MAX_SECONDS,
+                    self.safety_pause_duration_min_seconds,
+                    self.safety_pause_duration_max_seconds,
                 )
                 hhmmss = datetime.now().strftime("%H:%M:%S")
                 print(
