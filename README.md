@@ -32,14 +32,14 @@ python -m pip install -r requirements.txt
 ### Windows (PowerShell)
 
 ```powershell
-cd C:\Users\Guilherme\Desktop\apoio
+cd C:\Users\Guilherme\caminho\para\osrs-mob-attack
 python ".\OSRS Mob attack.py"
 ```
 
 ### Linux
 
 ```bash
-cd /caminho/para/apoio
+cd /caminho/para/osrs-mob-attack
 python3 "OSRS Mob attack.py"
 ```
 
