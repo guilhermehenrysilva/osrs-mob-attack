@@ -71,8 +71,13 @@ WINDOW_REFRESH_SECONDS = 1.0
 MIN_SECONDS_BETWEEN_ATTACKS = 0.55
 AFTER_ATTACK_SLEEP = 0.24
 NO_TARGET_STREAK_FOR_SCAN = 5
+NO_TARGET_SPIN_BEFORE_TILT_DOWN_SECONDS = 10.0
+CAMERA_ZOOM_OUT_SCROLL_AMOUNT = -280
+CAMERA_ZOOM_IN_SCROLL_AMOUNT = 1400
 CAMERA_SCAN_COOLDOWN_SECONDS = 0.60
 CAMERA_ROTATE_RIGHT_60_SECONDS = 0.58
+CAMERA_TILT_UP_SECONDS = 3.0
+CAMERA_TILT_DOWN_SECONDS = 3.0
 SAFETY_PAUSE_INTERVAL_MIN_SECONDS = 120.0
 SAFETY_PAUSE_INTERVAL_MAX_SECONDS = 600.0
 SAFETY_PAUSE_DURATION_MIN_SECONDS = 10.0
@@ -138,6 +143,8 @@ class MobSupportBot:
         self.last_camera_scan = 0.0
         self.next_safety_pause_at: Optional[float] = None
         self.no_target_streak = 0
+        self.no_target_scan_started_at: Optional[float] = None
+        self.no_target_scan_tilt_down_done = False
         self.failed_engage_attempts = 0
         self.prev_in_combat = False
 
@@ -741,6 +748,26 @@ class MobSupportBot:
         time.sleep(CAMERA_ROTATE_RIGHT_60_SECONDS)
         pyautogui.keyUp("right")
 
+    @staticmethod
+    def _tilt_camera_up():
+        pyautogui.keyDown("up")
+        time.sleep(CAMERA_TILT_UP_SECONDS)
+        pyautogui.keyUp("up")
+
+    @staticmethod
+    def _tilt_camera_down():
+        pyautogui.keyDown("down")
+        time.sleep(CAMERA_TILT_DOWN_SECONDS)
+        pyautogui.keyUp("down")
+
+    @staticmethod
+    def _zoom_out_camera():
+        pyautogui.scroll(CAMERA_ZOOM_OUT_SCROLL_AMOUNT)
+
+    @staticmethod
+    def _zoom_in_camera():
+        pyautogui.scroll(CAMERA_ZOOM_IN_SCROLL_AMOUNT)
+
     def _is_in_combat(self) -> bool:
         region = self._region_from_rel(MOB_HUB_REGION_REL)
         if region is None:
@@ -981,6 +1008,8 @@ class MobSupportBot:
         self.post_click_wait_seen_hub = False
         self.post_click_wait_started_at = 0.0
         self.no_target_streak = 0
+        self.no_target_scan_started_at = None
+        self.no_target_scan_tilt_down_done = False
         self.failed_engage_attempts = 0
         self.enabled = True
         self.session_running = True
@@ -1035,7 +1064,10 @@ class MobSupportBot:
 
             if self.post_click_wait_active:
                 if in_combat:
-                    self.post_click_wait_seen_hub = True
+                    if not self.post_click_wait_seen_hub:
+                        self.post_click_wait_seen_hub = True
+                        self._tilt_camera_up()
+                        self._zoom_in_camera()
                     self.failed_engage_attempts = 0
                     time.sleep(MAIN_LOOP_SLEEP)
                     continue
@@ -1047,7 +1079,8 @@ class MobSupportBot:
                     self.post_click_wait_seen_hub = False
                     self.failed_engage_attempts += 1
                     if self.failed_engage_attempts >= 1:
-                        self._perform_camera_scan(now)
+                        self._tilt_camera_down()
+                        self._perform_camera_scan(time.time())
                         self.failed_engage_attempts = 0
                 else:
                     self.post_click_wait_active = False
@@ -1062,6 +1095,8 @@ class MobSupportBot:
                     self.post_click_wait_seen_hub = False
 
             if in_combat:
+                self.no_target_scan_started_at = None
+                self.no_target_scan_tilt_down_done = False
                 time.sleep(MAIN_LOOP_SLEEP)
                 continue
 
@@ -1102,6 +1137,8 @@ class MobSupportBot:
                         self.post_click_wait_started_at = now
                         self.post_click_wait_seen_hub = False
                         self.no_target_streak = 0
+                        self.no_target_scan_started_at = None
+                        self.no_target_scan_tilt_down_done = False
                         attacked = True
                         if LOG_VERBOSE and red_ok:
                             print("[BOT] Marcador vermelho detectado.")
@@ -1110,7 +1147,17 @@ class MobSupportBot:
                     if not attacked:
                         self.no_target_streak += 1
                         if self.no_target_streak >= NO_TARGET_STREAK_FOR_SCAN:
-                            self._perform_camera_scan(now)
+                            if self.no_target_scan_started_at is None:
+                                self.no_target_scan_started_at = now
+                            if now - self.last_camera_scan >= CAMERA_SCAN_COOLDOWN_SECONDS:
+                                self._zoom_out_camera()
+                                self._perform_camera_scan(now)
+                            if (
+                                not self.no_target_scan_tilt_down_done
+                                and (now - self.no_target_scan_started_at) >= NO_TARGET_SPIN_BEFORE_TILT_DOWN_SECONDS
+                            ):
+                                self._tilt_camera_down()
+                                self.no_target_scan_tilt_down_done = True
 
             time.sleep(MAIN_LOOP_SLEEP)
         self._stop_listener()
