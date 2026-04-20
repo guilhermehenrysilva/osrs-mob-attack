@@ -1179,7 +1179,10 @@ class MobSupportBot:
                     self.post_click_wait_seen_hub = False
                     self.failed_engage_attempts += 1
                     if self.failed_engage_attempts >= 1:
-                        self._tilt_camera_down()
+                        # Inicia busca sem alvo com camera alta (zoom out + giro).
+                        # A descida total da camera ocorre apenas no fluxo de busca
+                        # apos NO_TARGET_SPIN_BEFORE_TILT_DOWN_SECONDS.
+                        self._zoom_out_camera()
                         self._perform_camera_scan(time.time())
                         self.failed_engage_attempts = 0
                 else:
